@@ -1,0 +1,22 @@
+@baseUrl = http://127.0.0.1:8787/v1
+@ownerKey = aigw_replace_me
+
+### Models
+GET {{baseUrl}}/models
+Authorization: Bearer {{ownerKey}}
+
+### Chat completions
+POST {{baseUrl}}/chat/completions
+Authorization: Bearer {{ownerKey}}
+Content-Type: application/json
+
+{
+  "model": "your-model-id",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Hello through the gateway"
+    }
+  ],
+  "stream": false
+}

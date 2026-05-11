@@ -1,0 +1,72 @@
+{
+  "name": "ai-key-gateway",
+  "version": "0.1.0",
+  "private": true,
+  "description": "OpenAI-compatible AI provider load balancer with failover, quota thresholds, Vercel AI SDK support, web dashboard, and desktop wrapper.",
+  "type": "module",
+  "main": "desktop/main.cjs",
+  "scripts": {
+    "dev": "concurrently -k \"npm:dev:api\" \"npm:dev:web\"",
+    "dev:api": "tsx watch src/server/index.ts",
+    "dev:web": "vite --host 127.0.0.1",
+    "dev:desktop": "concurrently -k \"npm:dev:api\" \"npm:dev:web\" \"wait-on http://127.0.0.1:5173 http://127.0.0.1:8787/health && electron .\"",
+    "build": "tsc -p tsconfig.server.json && vite build",
+    "start": "node dist/server/index.js",
+    "preview": "vite preview --host 127.0.0.1",
+    "desktop:pack": "powershell -ExecutionPolicy Bypass -File scripts/package-portable-folder.ps1",
+    "desktop:pack:single": "npm run build && electron-builder --win portable --publish never",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.server.json --noEmit"
+  },
+  "dependencies": {
+    "@fastify/cors": "^10.0.2",
+    "@fastify/rate-limit": "^10.2.2",
+    "@fastify/static": "^9.1.3",
+    "@vitejs/plugin-react": "^4.6.0",
+    "fastify": "^5.2.1",
+    "lucide-react": "^0.468.0",
+    "nanoid": "^5.0.9",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "concurrently": "^9.1.0",
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8",
+    "sharp": "^0.34.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.5",
+    "wait-on": "^8.0.1"
+  },
+  "build": {
+    "appId": "com.local.aikeygateway",
+    "productName": "AI API load balancer",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-web/**/*",
+      "desktop/**/*",
+      "icons/**/*",
+      "package.json"
+    ],
+    "win": {
+      "icon": "icons/icon.png",
+      "target": [
+        "portable"
+      ]
+    },
+    "mac": {
+      "target": "dmg"
+    },
+    "linux": {
+      "target": "AppImage"
+    },
+    "forceCodeSigning": false
+  }
+}
