@@ -127,7 +127,7 @@ Serves both the API and the built dashboard on `http://127.0.0.1:8787`.
 
 ### 5. Desktop portable app
 
-The portable `.exe` file are in `release/` folder.
+The portable `.exe` file are in here [Releases](https://github.com/0xmdrakib/AI-API-load-balancer/releases).
 
 ---
 
