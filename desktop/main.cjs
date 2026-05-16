@@ -1,13 +1,35 @@
-const { app, BrowserWindow, shell, nativeImage } = require("electron");
+const { app, BrowserWindow, shell, nativeImage, dialog } = require("electron");
+const fs = require("node:fs");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 
 const isDev = !app.isPackaged;
 const devUrl = "http://127.0.0.1:5173";
 
+function errorText(error) {
+  if (error instanceof Error) return error.stack || error.message;
+  return String(error);
+}
+
+function logMainProcessError(error) {
+  const message = errorText(error);
+  console.error(message);
+
+  try {
+    const logPath = path.join(app.getPath("userData"), "main-process.log");
+    fs.mkdirSync(path.dirname(logPath), { recursive: true });
+    fs.appendFileSync(logPath, `[${new Date().toISOString()}]\n${message}\n\n`);
+  } catch {
+    // Logging must never create another crash loop.
+  }
+}
+
+process.on("uncaughtException", logMainProcessError);
+process.on("unhandledRejection", logMainProcessError);
+
 function getIconPath() {
-  const iconPng = path.join(__dirname, isDev ? "icons" : "..", "icons", "icon.png");
-  if (require("fs").existsSync(iconPng)) {
+  const iconPng = path.join(__dirname, "..", "icons", "icon.png");
+  if (fs.existsSync(iconPng)) {
     return nativeImage.createFromPath(iconPng);
   }
   return undefined;
@@ -62,8 +84,17 @@ function createWindow() {
 }
 
 app.whenReady().then(async () => {
-  await startPackagedBackend();
-  createWindow();
+  try {
+    await startPackagedBackend();
+    createWindow();
+  } catch (error) {
+    logMainProcessError(error);
+    dialog.showErrorBox(
+      "AI API load balancer failed to start",
+      "The local gateway backend could not start. Details were written to main-process.log in the app data folder."
+    );
+    app.quit();
+  }
 });
 
 app.on("window-all-closed", () => {
