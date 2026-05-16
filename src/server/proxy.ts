@@ -1,4 +1,5 @@
 import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { decryptSecret } from "./crypto.js";
 import { estimateSpendCents, refreshLiveBalances } from "./balance.js";
@@ -126,6 +127,25 @@ async function sendTextResponse(reply: FastifyReply, upstream: Response, text: s
   return reply.send(text);
 }
 
+async function sendStreamingResponse(request: FastifyRequest, reply: FastifyReply, upstream: Response) {
+  reply.hijack();
+  reply.raw.writeHead(upstream.status, copyResponseHeaders(upstream));
+
+  if (!upstream.body) {
+    reply.raw.end();
+    return reply;
+  }
+
+  try {
+    await pipeline(Readable.fromWeb(upstream.body), reply.raw);
+  } catch (error) {
+    request.log.warn({ err: error }, "Upstream stream terminated before completion");
+    if (!reply.raw.destroyed) reply.raw.destroy();
+  }
+
+  return reply;
+}
+
 export async function proxyUniversalV1(
   gateway: GatewayStored,
   modelCompany: ModelCompanyDefinition,
@@ -186,9 +206,7 @@ export async function proxyUniversalV1(
           lastRoundRobinIndex: nextRoundRobinIndex(stored, account.id)
         }));
 
-        reply.raw.writeHead(upstream.status, copyResponseHeaders(upstream));
-        Readable.fromWeb(upstream.body).pipe(reply.raw);
-        return reply;
+        return sendStreamingResponse(request, reply, upstream);
       }
 
       const text = await upstream.text();
