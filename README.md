@@ -93,19 +93,6 @@ npm install
 
 Create a `.env` file in the project root. Copy from [.env.example](./.env.example):
 
-```env
-PORT=8787
-HOST=127.0.0.1
-PUBLIC_BASE_URL=http://127.0.0.1:8787
-
-# Required for production. Encrypts stored provider keys at rest.
-GATEWAY_SECRET=change-this-to-a-long-random-secret
-
-# Optional. Defaults to ./data for web server.
-# Desktop builds use Electron's app data directory.
-GATEWAY_DATA_DIR=
-```
-
 ### 3. Run the development server
 
 ```bash
