@@ -14,5 +14,5 @@ if (html.includes('AI.Load.Balancer')) throw new Error('Obsolete dotted artifact
 const manifest = readFileSync(join(root, 'website/site.webmanifest'), 'utf8');
 if (!manifest.includes('assets/brand-mark.png')) throw new Error('Showcase icon is missing from the manifest');
 const vercel = JSON.parse(readFileSync(join(root, 'vercel.json'), 'utf8'));
-if (vercel.outputDirectory !== 'website' || vercel.buildCommand !== null) throw new Error('Vercel root config must serve website/ without building the Electron app');
+if (vercel.framework !== null || vercel.outputDirectory !== 'website' || vercel.buildCommand !== null) throw new Error('Vercel root config must serve website/ without building the Electron app');
 console.log(`Showcase verified: ${required.length} files, responsive static bundle ready for Vercel.`);
