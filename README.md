@@ -1,147 +1,52 @@
-# AI Load Balancer v0.2.0
+# AI Load Balancer
 
-AI Load Balancer is a local Windows control plane that puts up to 50 provider keys behind one owner key. OpenAI and Anthropic clients can use the same gateway with native passthrough, cross-protocol translation, balancing, and failover.
+AI Load Balancer is a local-first Windows gateway that balances provider API keys behind one stable endpoint for OpenAI and Anthropic applications.
 
-## Highlights
+Website: [ailoadbalancer.rakibhq.xyz](https://ailoadbalancer.rakibhq.xyz/)
 
-- Official OpenAI Chat Completions and Anthropic Messages client compatibility
-- OpenAI → OpenAI, Anthropic → Anthropic, OpenAI → Anthropic, and Anthropic → OpenAI routing
-- Non-streaming and SSE streaming translation for text, images, function tools, tool results, stop reasons, and usage
-- Four strategies: priority failover, round robin, weighted, and least used
-- Up to 50 provider accounts per gateway and up to 49 failover retries
-- `Retry-After`-aware cooldowns and distinct invalid, exhausted, cooldown, and active states
-- Vercel AI Gateway remains available as an OpenAI-compatible upstream provider
-- SafeStorage-backed installation secret in the Windows desktop build; provider keys use AES-256-GCM at rest
-- Isolated Electron utility-process backend with single-instance handling and crash restart delays of 1s, 2s, and 5s
-- Version-2 memory-resident store with serialized atomic writes, backup recovery, and legacy-store preservation
-- Responsive black/gold/cream dashboard with light and dark themes
+Download: [Latest GitHub Release](https://github.com/0xmdrakib/AI-API-load-balancer/releases/latest)
 
-## Local URLs and ports
+---
 
-The desktop app scans IANA-unassigned ports `42891–42940` and uses the first free port. If the entire range is occupied, it asks the OS for a free port. The UI and generated SDK snippets always use the actual bound port.
+## Features
 
-For a standalone server, an explicit `PORT` is honored exactly:
+- Balance up to 50 provider accounts behind one owner API key
+- Priority, round robin, weighted, and least-used strategies
+- Automatic failover for rate limits, billing failures, network errors, and upstream errors
+- OpenAI Chat Completions and Anthropic Messages compatibility
+- OpenAI ↔ Anthropic translation for supported text, vision, tools, streaming, and usage
+- Official `openai` and `@anthropic-ai/sdk` examples using environment variables
+- Encrypted local provider-key storage with safe recovery and atomic writes
+- Local-only Windows control plane with no hosted account or cloud database
+- Automatic backend recovery and single-instance desktop launch
 
-```powershell
-$env:PORT = "43001"
-$env:GATEWAY_SECRET = "replace-with-a-long-random-secret"
-npm start
-```
+## Requirements
 
-Runtime metadata is available without secrets at `/runtime` and `/api/runtime`. Readiness and store recovery state are available at `/health`.
+- Windows 10 or Windows 11
 
-## Install and verify
+## Download
 
-```bash
-npm install
-npm run verify
-```
+Open the [latest release](https://github.com/0xmdrakib/AI-API-load-balancer/releases/latest) and choose either:
 
-`npm run verify` runs strict client/server type checks, the official-SDK integration suite, and the production web build.
+1. `AI-Load-Balancer.exe`
+2. `AI-Load-Balancer.zip`, containing only the same portable executable
 
-## Development
+The preview is unsigned, so Windows may show “Unknown publisher”.
 
-```bash
-npm run dev:api
-npm run dev:web
-```
+## Workflow
 
-The standalone API prefers `http://127.0.0.1:42891`. Vite runs on `http://127.0.0.1:5173` and proxies to that preferred development port. If `42891` is occupied, set an explicit `PORT` and update the local Vite proxy when running the two servers separately.
+1. Launch the portable application.
+2. Add provider accounts and choose a balancing strategy.
+3. Create an owner API key in the dashboard.
+4. Point the OpenAI SDK to `http://127.0.0.1:<port>/v1`.
+5. Point the Anthropic SDK to `http://127.0.0.1:<port>`.
 
-To run the full desktop flow with the built dashboard:
+The desktop app selects a free port from `42891–42940`. The dashboard and SDK examples always show the actual port. OpenAI uses Bearer authentication; Anthropic uses `x-api-key`.
 
-```bash
-npm run dev:desktop
-```
+## Responsible Use
 
-## OpenAI SDK
-
-The OpenAI base URL includes `/v1`:
-
-```js
-import OpenAI from "openai";
-
-const client = new OpenAI({
-  apiKey: process.env.AI_GATEWAY_API_KEY,
-  baseURL: process.env.AI_GATEWAY_OPENAI_BASE_URL
-});
-
-const response = await client.chat.completions.create({
-  model: "your-model-id",
-  messages: [{ role: "user", content: "Hello" }]
-});
-```
-
-## Anthropic SDK
-
-The Anthropic base URL deliberately does not include `/v1`:
-
-```js
-import Anthropic from "@anthropic-ai/sdk";
-
-const client = new Anthropic({
-  apiKey: process.env.AI_GATEWAY_API_KEY,
-  baseURL: process.env.AI_GATEWAY_ANTHROPIC_BASE_URL
-});
-
-const response = await client.messages.create({
-  model: "your-model-id",
-  max_tokens: 1024,
-  messages: [{ role: "user", content: "Hello" }]
-});
-```
-
-Both Bearer owner authentication and `x-api-key` owner authentication are accepted. If both are sent with different values, the request fails closed with `401`.
-
-## Cross-protocol scope
-
-Chat Completions and Messages translate between protocols for text, supported image blocks, function tools, tool calls/results, tool choice, parallel-tool intent, usage, errors, and SSE streams.
-
-OpenAI Responses and Anthropic thinking/beta-only body blocks are not silently simplified. They pass through to a native upstream, or return `400 unsupported_feature` when cross-protocol translation would be required. Files, batches, and other native endpoints follow the same rule.
-
-## Storage
-
-The desktop build stores configuration below the app's Windows user-data directory. A random installation secret is encrypted by Electron SafeStorage. New provider keys are encrypted before being written to `gateway.json`.
-
-Store writes are serialized and atomically replaced. A `.bak` copy is maintained. A version-1 store is preserved as a timestamped backup before a clean version-2 store is created; corrupt primary data is preserved and recovered from a valid backup when possible.
-
-For standalone use:
-
-```env
-GATEWAY_SECRET=replace-with-a-long-random-secret
-GATEWAY_DATA_DIR=C:\path\to\gateway-data
-```
-
-Production mode refuses to start with the shared development secret.
-
-## Windows preview build
-
-```bash
-npm run desktop:pack:single
-npm run desktop:pack
-```
-
-`npm run desktop:pack` creates the portable EXE and a ZIP containing only that EXE.
-The clean release filenames are `AI Load Balancer.exe` and `AI Load Balancer.zip`; the release/tag carries the version number.
-
-The v0.2.0 preview is unsigned, so Windows may show “Unknown publisher.” No GitHub release is created by these commands.
-
-## Showcase website
-
-The Vercel-ready static showcase lives in [`website/`](./website). It is intentionally separate from the Electron application and has no access to local keys, runtime state, or gateway ports. Deploy the `website` directory as the project root on Vercel, or use the future public domain:
-
-**https://ailoadbalancer.rakibhq.xyz**
-
-It includes responsive product documentation, OpenAI and Anthropic setup examples, benefits, quick-start guidance, release downloads, the approved brand icon, light/dark theme parity, and mobile navigation. Verify it with:
-
-```bash
-npm run site:verify
-```
-
-## Safety
-
-Use the gateway for legitimate redundancy, uptime, and budget management. It does not authorize bypassing provider policies, billing controls, or rate limits.
+Use AI Load Balancer for legitimate redundancy, uptime, and budget management on provider accounts you own or are authorized to use. It does not bypass provider policies, billing controls, or rate limits.
 
 ## License
 
-[MIT](./LICENSE)
+The source code is available under the [MIT License](LICENSE).
