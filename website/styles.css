@@ -42,3 +42,9 @@ body.dark{--cream:#121211;--paper:#1b1b18;--ink:#f6f2e9;--muted:#aaa79b;--line:#
   .site-nav{position:static;left:auto;right:auto;top:auto;grid-column:1/-1;grid-row:2;width:100%;margin:0}
   .site-nav.open{display:flex}
 }
+@media (max-width:680px){
+  .site-nav.open{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px;padding:10px}
+  .site-nav a{padding:10px 12px;border-radius:10px;line-height:1.25}
+  .site-nav a:hover{background:var(--cream)}
+  .site-nav .nav-github{grid-column:1/-1;margin-top:4px;text-align:center}
+}
