@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const root = decodeURIComponent(new URL('../', import.meta.url).pathname.replace(/^\/(?:[A-Za-z]:)/, (value) => value.slice(1)));
-const required = ['website/index.html', 'website/styles.css', 'website/app.js', 'website/site.webmanifest', 'website/browserconfig.xml', 'website/robots.txt', 'website/sitemap.xml', 'website/README.md', 'website/assets/brand-mark.png', 'website/assets/dashboard-preview.png'];
+const required = ['vercel.json', 'website/index.html', 'website/styles.css', 'website/app.js', 'website/site.webmanifest', 'website/browserconfig.xml', 'website/robots.txt', 'website/sitemap.xml', 'website/README.md', 'website/assets/brand-mark.png', 'website/assets/dashboard-preview.png'];
 for (const relative of required) {
   if (!existsSync(join(root, relative))) throw new Error(`Missing showcase file: ${relative}`);
 }
@@ -13,4 +13,6 @@ for (const marker of ['AI Load Balancer', 'OpenAI SDK', 'Anthropic SDK', 'Balanc
 if (html.includes('AI.Load.Balancer')) throw new Error('Obsolete dotted artifact name found in showcase');
 const manifest = readFileSync(join(root, 'website/site.webmanifest'), 'utf8');
 if (!manifest.includes('assets/brand-mark.png')) throw new Error('Showcase icon is missing from the manifest');
+const vercel = JSON.parse(readFileSync(join(root, 'vercel.json'), 'utf8'));
+if (vercel.outputDirectory !== 'website' || vercel.buildCommand !== null) throw new Error('Vercel root config must serve website/ without building the Electron app');
 console.log(`Showcase verified: ${required.length} files, responsive static bundle ready for Vercel.`);
