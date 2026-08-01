@@ -82,6 +82,9 @@ export interface ProviderAccountPublic {
   cooldownUntil?: string;
   latencyMs?: number;
   customHeaders?: Record<string, string>;
+  consecutiveFailures?: number;
+  lastSuccessAt?: string;
+  upstreamProtocol?: "openai" | "anthropic";
 }
 
 export interface ProviderAccountStored extends ProviderAccountPublic {
@@ -139,6 +142,7 @@ export interface GatewayCreateInput {
     weight?: number;
     priority?: number;
     customHeaders?: Record<string, string>;
+    upstreamProtocol?: "openai" | "anthropic";
   }>;
 }
 
@@ -146,11 +150,29 @@ export interface GatewayCreateResponse {
   gateway: GatewayPublic;
   ownerApiKey: string;
   baseUrl: string;
+  baseUrls: {
+    openai: string;
+    anthropic: string;
+  };
 }
 
 export interface GatewayStoreFile {
-  version: 1;
+  version: 2;
   gateways: GatewayStored[];
+}
+
+export interface RuntimeMetadata {
+  version: string;
+  uptimeSeconds: number;
+  port: number;
+  baseUrls: {
+    openai: string;
+    anthropic: string;
+  };
+  store: {
+    state: "ready" | "recovered" | "reset";
+    message: string;
+  };
 }
 
 export interface PolicyDefinition {

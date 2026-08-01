@@ -23,6 +23,7 @@ import {
   Sun,
   Moon,
   Trash2,
+  X,
   Zap
 } from "lucide-react";
 import {
@@ -34,6 +35,7 @@ import {
   fetchBootstrap,
   fetchGatewayDiagnostics,
   fetchGateways,
+  fetchRuntime,
   patchGateway,
   rotateOwnerKey
 } from "./api";
@@ -49,8 +51,11 @@ import type {
   ModelCompanyDefinition,
   OwnerKeyCheckResult,
   PolicyDefinition,
-  ProviderFeature
+  ProviderFeature,
+  RuntimeMetadata,
+  GatewayCreateResponse
 } from "../shared/types";
+import { MAX_ACCOUNTS_PER_GATEWAY, MAX_FAILOVER_RETRIES } from "../shared/constants";
 
 interface AccountDraft {
   label: string;
@@ -61,6 +66,11 @@ interface AccountDraft {
   weight: number;
   priority: number;
 }
+
+type DesktopBridge = {
+  onBackendState?: (listener: (state: { state: string }) => void) => () => void;
+  openLogs?: () => Promise<string>;
+};
 
 const featureLabels: Record<ProviderFeature, string> = {
   "openai-compatible": "OpenAI compatible",
@@ -134,10 +144,6 @@ function copyText(value: string) {
   return navigator.clipboard.writeText(value);
 }
 
-function localGatewayBaseUrl() {
-  return `${window.location.origin}/v1`;
-}
-
 export function App() {
   const [providers, setProviders] = useState<ModelCompanyDefinition[]>([]);
   const [_endpointProviders, setEndpointProviders] = useState<EndpointProviderDefinition[]>([]);
@@ -149,9 +155,15 @@ export function App() {
   const [gatewayName, setGatewayName] = useState("Production Gateway");
   const [strategy, setStrategy] = useState<LoadBalancingStrategy>("priority-failover");
   const [failover, setFailover] = useState<FailoverOptions | null>(null);
-  const [accountCount, setAccountCount] = useState(3);
   const [accounts, setAccounts] = useState<AccountDraft[]>([]);
-  const [createResult, setCreateResult] = useState<{ ownerApiKey: string; baseUrl: string; gateway: GatewayPublic } | null>(null);
+  const [accountPage, setAccountPage] = useState(1);
+  const [accountDrawerIndex, setAccountDrawerIndex] = useState<number | null>(null);
+  const [createResult, setCreateResult] = useState<GatewayCreateResponse | null>(null);
+  const [runtime, setRuntime] = useState<RuntimeMetadata | null>(null);
+  const [activeSdk, setActiveSdk] = useState<"openai" | "anthropic">("openai");
+  const [copiedLabel, setCopiedLabel] = useState<string | null>(null);
+  const [bootstrapLoading, setBootstrapLoading] = useState(true);
+  const [desktopBackendState, setDesktopBackendState] = useState<string>("ready");
   const [selectedGatewayId, setSelectedGatewayId] = useState<string | null>(null);
   const [balances, setBalances] = useState<BalanceSnapshot[]>([]);
   const [diagnostics, setDiagnostics] = useState<GatewayDiagnostics | null>(null);
@@ -173,6 +185,11 @@ export function App() {
     document.documentElement.setAttribute("data-theme", theme);
     localStorage.setItem("theme", theme);
   }, [theme]);
+
+  useEffect(() => {
+    const desktop = (window as Window & { gatewayDesktop?: DesktopBridge }).gatewayDesktop;
+    return desktop?.onBackendState?.((state) => setDesktopBackendState(state.state));
+  }, []);
 
   const selectedProvider = useMemo(
     () => providers.find((provider) => provider.id === selectedProviderId),
@@ -203,24 +220,22 @@ export function App() {
         setFailover(data.defaultFailover);
         const initialProvider = data.providers.find((provider) => provider.id === "openai") || data.providers[0];
         setSelectedProviderId(initialProvider.id);
-        setAccounts(Array.from({ length: accountCount }, (_, index) => makeAccountDraft(index, initialProvider)));
+        setAccounts([makeAccountDraft(0, initialProvider)]);
       })
       .catch((caught) => setError(caught.message));
-
-    refreshGateways();
+    Promise.all([refreshGateways(), fetchRuntime().then(setRuntime)])
+      .catch((caught) => setError(caught instanceof Error ? caught.message : "Could not load the local gateway"))
+      .finally(() => setBootstrapLoading(false));
   }, []);
 
   useEffect(() => {
     if (!selectedProvider) return;
-    setAccounts((current) => {
-      const next = Array.from({ length: accountCount }, (_, index) => current[index] || makeAccountDraft(index, selectedProvider));
-      return next.map((account, index) => ({
+    setAccounts((current) => current.map((account, index) => ({
         ...account,
         priority: account.priority || index + 1,
         baseUrl: selectedProvider.setupFields?.some((field) => field.key === "baseUrl") ? account.baseUrl || selectedProvider.defaultBaseUrl : account.baseUrl
-      }));
-    });
-  }, [accountCount, selectedProvider]);
+      })));
+  }, [selectedProvider]);
 
   useEffect(() => {
     if (!selectedGateway?.id) {
@@ -250,9 +265,9 @@ export function App() {
     loadBalances();
     const timer = window.setInterval(() => {
       if (document.visibilityState !== "hidden") {
-        loadBalances(true);
+        loadBalances(false);
       }
-    }, 5000);
+    }, 15_000);
 
     return () => {
       active = false;
@@ -292,6 +307,34 @@ export function App() {
 
   function updateAccount(index: number, patch: Partial<AccountDraft>) {
     setAccounts((current) => current.map((account, accountIndex) => (accountIndex === index ? { ...account, ...patch } : account)));
+  }
+
+  function addAccountDraft() {
+    if (accounts.length >= MAX_ACCOUNTS_PER_GATEWAY) return;
+    const nextIndex = accounts.length;
+    setAccounts((current) => [...current, makeAccountDraft(nextIndex, selectedProvider)]);
+    setAccountPage(Math.floor(nextIndex / 10) + 1);
+    setAccountDrawerIndex(nextIndex);
+  }
+
+  function removeAccountDraft(index: number) {
+    if (accounts.length === 1) {
+      setAccounts([makeAccountDraft(0, selectedProvider)]);
+      setAccountDrawerIndex(null);
+      return;
+    }
+    setAccounts((current) => current.filter((_, accountIndex) => accountIndex !== index).map((account, accountIndex) => ({
+      ...account,
+      priority: Math.min(account.priority, accountIndex + 1)
+    })));
+    setAccountDrawerIndex(null);
+    setAccountPage((page) => Math.min(page, Math.ceil((accounts.length - 1) / 10)));
+  }
+
+  async function copyWithFeedback(value: string, label: string) {
+    await copyText(value);
+    setCopiedLabel(label);
+    window.setTimeout(() => setCopiedLabel((current) => current === label ? null : current), 1800);
   }
 
   async function submitGateway() {
@@ -355,6 +398,7 @@ export function App() {
   }
 
   async function rotateKey(gateway: GatewayPublic) {
+    if (!window.confirm(`Rotate the owner key for ${gateway.name}? The current owner key will stop working immediately.`)) return;
     setBusy(true);
     setError(null);
     try {
@@ -369,6 +413,7 @@ export function App() {
   }
 
   async function removeGateway(gateway: GatewayPublic) {
+    if (!window.confirm(`Delete ${gateway.name}? The encrypted account configuration will be removed from the active store.`)) return;
     setBusy(true);
     setError(null);
     try {
@@ -385,6 +430,8 @@ export function App() {
   }
 
   async function removeGatewayAccount(gateway: GatewayPublic, accountId: string) {
+    const account = gateway.accounts.find((item) => item.id === accountId);
+    if (!window.confirm(`Remove ${account?.label ?? "this account"} from ${gateway.name}?`)) return;
     setBusy(true);
     setError(null);
     try {
@@ -442,15 +489,18 @@ export function App() {
 
   const connectionGateway = selectedGateway ?? createResult?.gateway ?? null;
   const hasFreshOwnerKey = Boolean(createResult && connectionGateway && createResult.gateway.id === connectionGateway.id);
-  const connectionBaseUrl = hasFreshOwnerKey ? createResult!.baseUrl : connectionGateway ? localGatewayBaseUrl() : "";
+  const fallbackRoot = window.location.origin;
+  const connectionBaseUrls = hasFreshOwnerKey
+    ? createResult!.baseUrls
+    : runtime?.baseUrls ?? { openai: `${fallbackRoot}/v1`, anthropic: fallbackRoot };
   const connectionOwnerKey = hasFreshOwnerKey ? createResult!.ownerApiKey : "YOUR_OWNER_API_KEY";
 
   const openAiSnippet = connectionGateway
     ? `import OpenAI from "openai";
 
 const client = new OpenAI({
-  apiKey: "${connectionOwnerKey}",
-  baseURL: "${connectionBaseUrl}"
+  apiKey: process.env.AI_GATEWAY_API_KEY,
+  baseURL: process.env.AI_GATEWAY_OPENAI_BASE_URL ?? "${connectionBaseUrls.openai}"
 });
 
 const result = await client.chat.completions.create({
@@ -460,35 +510,37 @@ const result = await client.chat.completions.create({
 });`
     : "";
 
-  const vercelSnippet = connectionGateway
-    ? `import { streamText } from "ai";
-import { createOpenAI } from "@ai-sdk/openai";
+  const anthropicSnippet = connectionGateway
+    ? `import Anthropic from "@anthropic-ai/sdk";
 
-const gateway = createOpenAI({
-  apiKey: "${connectionOwnerKey}",
-  baseURL: "${connectionBaseUrl}"
+const client = new Anthropic({
+  apiKey: process.env.AI_GATEWAY_API_KEY,
+  baseURL: process.env.AI_GATEWAY_ANTHROPIC_BASE_URL ?? "${connectionBaseUrls.anthropic}"
 });
 
-export async function POST(req: Request) {
-  const { messages } = await req.json();
-  const result = streamText({
-    model: gateway("your-model-id"),
-    messages
-  });
-
-  return result.toDataStreamResponse();
-}`
+const result = await client.messages.create({
+  model: "your-model-id",
+  max_tokens: 1024,
+  messages: [{ role: "user", content: "Hello" }],
+  stream: true
+});`
     : "";
+
+  const accountPageCount = Math.max(1, Math.ceil(accounts.length / 10));
+  const visibleAccountEntries = accounts
+    .map((account, index) => ({ account, index }))
+    .slice((accountPage - 1) * 10, accountPage * 10);
+  const drawerAccount = accountDrawerIndex === null ? null : accounts[accountDrawerIndex];
 
   return (
     <main className="app-shell">
       <aside className="sidebar" aria-label="Gateway navigation">
         <div className="brand">
           <div className="brand-mark">
-            <img src="/logo.png" alt="AI API load balancer" />
+            <img src="/logo.png" alt="AI Load Balancer" />
           </div>
           <div>
-            <strong className="dot-type">AI API load balancer</strong>
+            <strong className="dot-type">AI Load Balancer</strong>
             <span>Provider load balancing</span>
           </div>
         </div>
@@ -554,7 +606,31 @@ export async function POST(req: Request) {
         {error && (
           <div className="alert" role="alert">
             <CircleAlert size={18} />
-            {error}
+            <span>{error}</span>
+            <button type="button" onClick={() => { setError(null); void handleRefreshAll(); }}>Retry</button>
+          </div>
+        )}
+
+        {desktopBackendState !== "ready" && (
+          <div className="alert backend-alert" role="status">
+            <RefreshCw size={18} className={desktopBackendState === "restarting" ? "spin" : ""} />
+            <span>The isolated backend is {desktopBackendState}. The dashboard and saved configuration remain available.</span>
+            <button type="button" onClick={() => (window as Window & { gatewayDesktop?: DesktopBridge }).gatewayDesktop?.openLogs?.()}>Open log</button>
+          </div>
+        )}
+
+        {runtime && runtime.store.state !== "ready" && (
+          <div className="alert store-alert" role="status">
+            <ShieldCheck size={18} />
+            <span>{runtime.store.message}</span>
+          </div>
+        )}
+
+        {bootstrapLoading && (
+          <div className="loading-skeleton" aria-label="Loading local gateway">
+            <span />
+            <span />
+            <span />
           </div>
         )}
 
@@ -602,13 +678,11 @@ export async function POST(req: Request) {
                 <p className="eyebrow">Gateway</p>
                 <h2>Keys and policy</h2>
               </div>
-              <div className="stepper">
-                <button type="button" onClick={() => setAccountCount(Math.max(1, accountCount - 1))} aria-label="Remove key">
-                  <Trash2 size={15} />
-                </button>
-                <span>{accountCount}</span>
-                <button type="button" onClick={() => setAccountCount(Math.min(20, accountCount + 1))} aria-label="Add key">
+              <div className="account-counter">
+                <span>{accounts.length}/{MAX_ACCOUNTS_PER_GATEWAY}</span>
+                <button className="ghost-button" type="button" onClick={addAccountDraft} disabled={accounts.length >= MAX_ACCOUNTS_PER_GATEWAY}>
                   <Plus size={15} />
+                  Add API key
                 </button>
               </div>
             </div>
@@ -631,7 +705,7 @@ export async function POST(req: Request) {
                   >
                     <Icon size={18} />
                     <span>{policy.name}</span>
-                    {strategy === policy.id && <Check size={20} />}
+                    {strategy === policy.id && <Check className="policy-selected-check" size={16} />}
                   </button>
                 );
               })}
@@ -694,63 +768,116 @@ export async function POST(req: Request) {
                     <input
                       type="number"
                       min={0}
-                      max={10}
+                      max={MAX_FAILOVER_RETRIES}
                       value={failover.maxRetries}
-                      onChange={(event) => setFailover({ ...failover, maxRetries: Number(event.target.value) })}
+                      onChange={(event) => setFailover({ ...failover, maxRetries: Math.min(MAX_FAILOVER_RETRIES, Math.max(0, Number(event.target.value))) })}
                     />
                   </label>
                 </div>
               </>
             )}
 
-            <div className="account-table">
-              {accounts.map((account, index) => {
+            <div className="account-table premium-account-list">
+              <div className="account-list-head">
+                <span>Account</span>
+                <span>Endpoint</span>
+                <span>Balance</span>
+                <span>Actions</span>
+              </div>
+              {visibleAccountEntries.map(({ account, index }) => {
                 const endpoint = detectEndpointProvider(
                   account.baseUrl || selectedProvider?.defaultBaseUrl,
                   selectedProvider?.defaultEndpointProviderId
                 );
                 return (
-                  <div className="account-row" key={index}>
-                    <input value={account.label} onChange={(event) => updateAccount(index, { label: event.target.value })} aria-label="Key label" />
-                    <input
-                      value={account.apiKey}
-                      onChange={(event) => updateAccount(index, { apiKey: event.target.value })}
-                      placeholder="API key"
-                      type="password"
-                      aria-label="Endpoint API key"
-                    />
-                    {endpoint.balance.mode === "api" ? (
-                      <span className="balance-mode-pill" title={endpoint.balance.note}>
-                        Live
-                      </span>
-                    ) : (
-                      <input
-                        value={account.estimatedBalanceUsd}
-                        onChange={(event) => updateAccount(index, { estimatedBalanceUsd: event.target.value })}
-                        placeholder="Local USD"
-                        inputMode="decimal"
-                        aria-label="Optional local balance"
-                        title="Optional local starting balance for endpoints without live balance APIs"
-                      />
-                    )}
-                    <input
-                      value={account.baseUrl}
-                      onChange={(event) => updateAccount(index, { baseUrl: event.target.value })}
-                      placeholder={selectedProvider?.defaultBaseUrl || "Custom base URL"}
-                      aria-label="Custom base URL"
-                    />
-                    <span className="endpoint-pill" title={endpoint.balance.note}>
-                      {selectedProvider?.shortName ?? "Company"} via {endpoint.shortName}
+                  <div className="account-row premium-account-row" key={index}>
+                    <span className="account-identity">
+                      <strong>{account.label || `Key ${index + 1}`}</strong>
+                      <small>{account.apiKey ? "Key added ••••" : "API key required"}</small>
+                    </span>
+                    <span className="endpoint-pill" title={account.baseUrl || selectedProvider?.defaultBaseUrl}>
+                      {endpoint.shortName}
+                    </span>
+                    <span className="balance-mode-pill" title={endpoint.balance.note}>
+                      {endpoint.balance.mode === "api" ? "Live" : account.estimatedBalanceUsd ? `$${account.estimatedBalanceUsd}` : "Local"}
+                    </span>
+                    <span className="account-actions">
+                      <button className="icon-button" type="button" onClick={() => setAccountDrawerIndex(index)} aria-label={`Edit ${account.label}`} title="Edit account">
+                        <ServerCog size={15} />
+                      </button>
+                      <button className="icon-button danger" type="button" onClick={() => removeAccountDraft(index)} aria-label={`Remove ${account.label}`} title="Remove account">
+                        <Trash2 size={15} />
+                      </button>
                     </span>
                   </div>
                 );
               })}
             </div>
 
+            {accountPageCount > 1 && (
+              <div className="pagination" aria-label="Account pages">
+                <button type="button" onClick={() => setAccountPage((page) => Math.max(1, page - 1))} disabled={accountPage === 1}>Previous</button>
+                <span>Page {accountPage} of {accountPageCount}</span>
+                <button type="button" onClick={() => setAccountPage((page) => Math.min(accountPageCount, page + 1))} disabled={accountPage === accountPageCount}>Next</button>
+              </div>
+            )}
+
             <button className="primary-button" type="button" disabled={busy || !selectedProvider} onClick={submitGateway}>
               <Zap size={18} />
               Create owner API
             </button>
+
+            {drawerAccount && accountDrawerIndex !== null && (
+              <div className="drawer-backdrop" role="presentation" onMouseDown={(event) => {
+                if (event.currentTarget === event.target) setAccountDrawerIndex(null);
+              }}>
+                <section className="account-drawer" role="dialog" aria-modal="true" aria-labelledby="account-drawer-title">
+                  <div className="panel-heading drawer-heading">
+                    <div>
+                      <p className="eyebrow">Provider account {accountDrawerIndex + 1}</p>
+                      <h2 id="account-drawer-title">Add API key</h2>
+                    </div>
+                    <button className="icon-button" type="button" onClick={() => setAccountDrawerIndex(null)} aria-label="Close account editor">
+                      <X size={18} strokeWidth={2.25} aria-hidden="true" />
+                    </button>
+                  </div>
+                  <label className="field">
+                    <span>Account label</span>
+                    <input autoFocus value={drawerAccount.label} onChange={(event) => updateAccount(accountDrawerIndex, { label: event.target.value })} />
+                  </label>
+                  <label className="field">
+                    <span>Provider API key</span>
+                    <input value={drawerAccount.apiKey} onChange={(event) => updateAccount(accountDrawerIndex, { apiKey: event.target.value })} placeholder="Stored encrypted on this device" type="password" />
+                  </label>
+                  <label className="field">
+                    <span>Upstream base URL</span>
+                    <input value={drawerAccount.baseUrl} onChange={(event) => updateAccount(accountDrawerIndex, { baseUrl: event.target.value })} placeholder={selectedProvider?.defaultBaseUrl || "https://…"} />
+                  </label>
+                  <div className="drawer-field-grid">
+                    <label className="field">
+                      <span>Local balance USD</span>
+                      <input value={drawerAccount.estimatedBalanceUsd} onChange={(event) => updateAccount(accountDrawerIndex, { estimatedBalanceUsd: event.target.value })} inputMode="decimal" placeholder="Optional" />
+                    </label>
+                    <label className="field">
+                      <span>Balance floor USD</span>
+                      <input value={drawerAccount.balanceFloorUsd} onChange={(event) => updateAccount(accountDrawerIndex, { balanceFloorUsd: event.target.value })} inputMode="decimal" />
+                    </label>
+                    <label className="field">
+                      <span>Weight</span>
+                      <input type="number" min={1} max={100} value={drawerAccount.weight} onChange={(event) => updateAccount(accountDrawerIndex, { weight: Number(event.target.value) })} />
+                    </label>
+                    <label className="field">
+                      <span>Priority</span>
+                      <input type="number" min={1} max={100} value={drawerAccount.priority} onChange={(event) => updateAccount(accountDrawerIndex, { priority: Number(event.target.value) })} />
+                    </label>
+                  </div>
+                  <div className="drawer-actions">
+                    <button className="ghost-button" type="button" onClick={() => removeAccountDraft(accountDrawerIndex)}>Remove</button>
+                    <button className="primary-button" type="button" onClick={() => setAccountDrawerIndex(null)} disabled={!drawerAccount.apiKey.trim()}>Save account</button>
+                  </div>
+                </section>
+              </div>
+            )}
           </div>
         </section>
 
@@ -898,7 +1025,7 @@ export async function POST(req: Request) {
                     >
                       <Icon size={18} />
                       <span>{policy.name}</span>
-                      {selectedGateway.strategy === policy.id && <Check size={20} />}
+                      {selectedGateway.strategy === policy.id && <Check className="policy-selected-check" size={16} />}
                     </button>
                   );
                 })}
@@ -936,18 +1063,25 @@ export async function POST(req: Request) {
           {connectionGateway && (
             <div className="connection-grid">
               <div className="secret-box">
-                <span>Base URL</span>
-                <code>{connectionBaseUrl}</code>
-                <button onClick={() => copyText(connectionBaseUrl)} aria-label="Copy base URL" title="Copy base URL">
-                  <Copy size={16} />
+                <span>OpenAI base URL</span>
+                <code>{connectionBaseUrls.openai}</code>
+                <button onClick={() => copyWithFeedback(connectionBaseUrls.openai, "OpenAI URL")} aria-label="Copy OpenAI base URL" title="Copy OpenAI base URL">
+                  {copiedLabel === "OpenAI URL" ? <Check size={16} /> : <Copy size={16} />}
                 </button>
               </div>
               <div className="secret-box">
+                <span>Anthropic base URL</span>
+                <code>{connectionBaseUrls.anthropic}</code>
+                <button onClick={() => copyWithFeedback(connectionBaseUrls.anthropic, "Anthropic URL")} aria-label="Copy Anthropic base URL" title="Copy Anthropic base URL">
+                  {copiedLabel === "Anthropic URL" ? <Check size={16} /> : <Copy size={16} />}
+                </button>
+              </div>
+              <div className="secret-box owner-secret-box">
                 <span>Owner API key</span>
                 <code>{hasFreshOwnerKey ? connectionOwnerKey : `${connectionGateway.ownerKeyPreview} (preview only)`}</code>
                 {hasFreshOwnerKey ? (
-                  <button onClick={() => copyText(connectionOwnerKey)} aria-label="Copy owner API key" title="Copy owner API key">
-                    <Copy size={16} />
+                  <button onClick={() => copyWithFeedback(connectionOwnerKey, "Owner key")} aria-label="Copy owner API key" title="Copy owner API key">
+                    {copiedLabel === "Owner key" ? <Check size={16} /> : <Copy size={16} />}
                   </button>
                 ) : (
                   <button onClick={() => rotateKey(connectionGateway)} aria-label="Rotate and reveal owner key" title="Rotate and reveal new owner key">
@@ -956,8 +1090,18 @@ export async function POST(req: Request) {
                 )}
                 {!hasFreshOwnerKey && <small className="secret-help">Full key is shown only once. Rotate to reveal a new key.</small>}
               </div>
-              <CodeBlock title="OpenAI SDK" code={openAiSnippet} />
-              <CodeBlock title="Vercel AI SDK" code={vercelSnippet} />
+              <div className="sdk-panel">
+                <div className="sdk-tabs" role="tablist" aria-label="SDK examples">
+                  <button type="button" role="tab" aria-selected={activeSdk === "openai"} className={activeSdk === "openai" ? "active" : ""} onClick={() => setActiveSdk("openai")}>OpenAI SDK</button>
+                  <button type="button" role="tab" aria-selected={activeSdk === "anthropic"} className={activeSdk === "anthropic" ? "active" : ""} onClick={() => setActiveSdk("anthropic")}>Anthropic SDK</button>
+                </div>
+                <CodeBlock
+                  title={activeSdk === "openai" ? "OpenAI SDK" : "Anthropic SDK"}
+                  code={activeSdk === "openai" ? openAiSnippet : anthropicSnippet}
+                  copied={copiedLabel === `${activeSdk} SDK`}
+                  onCopy={() => copyWithFeedback(activeSdk === "openai" ? openAiSnippet : anthropicSnippet, `${activeSdk} SDK`)}
+                />
+              </div>
             </div>
           )}
         </section>
@@ -966,13 +1110,13 @@ export async function POST(req: Request) {
   );
 }
 
-function CodeBlock({ title, code }: { title: string; code: string }) {
+function CodeBlock({ title, code, copied, onCopy }: { title: string; code: string; copied?: boolean; onCopy?: () => void }) {
   return (
     <div className="code-block">
       <div>
         <span>{title}</span>
-        <button onClick={() => copyText(code)} aria-label={`Copy ${title}`} title={`Copy ${title}`}>
-          <Copy size={15} />
+        <button onClick={onCopy ?? (() => copyText(code))} aria-label={`Copy ${title}`} title={`Copy ${title}`}>
+          {copied ? <Check size={15} /> : <Copy size={15} />}
         </button>
       </div>
       <pre>{code}</pre>

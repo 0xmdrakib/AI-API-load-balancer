@@ -4,55 +4,63 @@ import { existsSync } from "fs";
 
 const srcCandidates = [
   process.env.LOGO_SRC,
-  "src/client/public/android-chrome-512x512.png",
-  "src/client/public/logo.png",
-  "C:/Users/Md. Rakib/Downloads/logo.png"
+  "icons/brand-mark.png"
 ].filter(Boolean);
 
 const src = srcCandidates.find((candidate) => existsSync(candidate));
+
+// Optical crop of the approved 1254×1254 master. It preserves the artwork
+// exactly while removing the large presentation whitespace that made the
+// 16px title-bar icon and Windows desktop icon look tiny.
+const ICON_CROP = { left: 132, top: 117, width: 988, height: 988 };
 
 if (!src) {
   throw new Error(`No logo source found. Tried: ${srcCandidates.join(", ")}`);
 }
 
-async function createRoundedIcon(inputSrc, dest, size, radius) {
-  const svgMask = `<svg width="${size}" height="${size}">
-    <rect x="0" y="0" width="${size}" height="${size}" rx="${radius}" ry="${radius}"/>
-  </svg>`;
+function roundedMask(size) {
+  const radius = Math.max(2, Math.round(size * 0.16));
+  return Buffer.from(
+    `<svg width="${size}" height="${size}" xmlns="http://www.w3.org/2000/svg"><rect width="${size}" height="${size}" rx="${radius}" fill="#fff"/></svg>`
+  );
+}
 
-  const resized = await sharp(inputSrc)
-    .resize(size, size, { fit: "contain", background: { r: 0, g: 0, b: 0, alpha: 0 } })
-    .png()
-    .toBuffer();
-
-  const mask = await sharp(Buffer.from(svgMask))
-    .resize(size, size)
+async function framedPng(inputSrc, size) {
+  return sharp(inputSrc)
+    .extract(ICON_CROP)
+    .resize(size, size, { fit: "fill" })
     .ensureAlpha()
+    .composite([{ input: roundedMask(size), blend: "dest-in" }])
     .png()
     .toBuffer();
+}
 
-  await sharp(resized)
-    .composite([{ input: mask, blend: "dest-in" }])
-    .png()
-    .toFile(dest);
+async function createPng(inputSrc, dest, size) {
+  await writeFile(dest, await framedPng(inputSrc, size));
 
   console.log("Created:", dest, size + "x" + size);
+}
+
+async function createMaskablePng(inputSrc, dest, size) {
+  const inset = Math.round(size * 0.115);
+  const framed = await sharp(inputSrc)
+    .extract(ICON_CROP)
+    .resize(size - inset * 2, size - inset * 2, { fit: "fill" })
+    .png()
+    .toBuffer();
+  await sharp({
+    create: { width: size, height: size, channels: 4, background: "#f7f1e6" }
+  })
+    .composite([{ input: framed, left: inset, top: inset }])
+    .png()
+    .toFile(dest);
+  console.log("Created:", dest, size + "x" + size, "maskable");
 }
 
 async function createIco(inputSrc, dest, sizes) {
   const images = await Promise.all(
     sizes.map(async (size) => {
-      const svgMask = `<svg width="${size}" height="${size}">
-        <rect x="0" y="0" width="${size}" height="${size}" rx="${Math.round(size * 0.125)}" ry="${Math.round(size * 0.125)}"/>
-      </svg>`;
-
-      const resized = await sharp(inputSrc)
-        .resize(size, size, { fit: "contain", background: { r: 0, g: 0, b: 0, alpha: 0 } })
-        .png()
-        .toBuffer();
-
-      const mask = await sharp(Buffer.from(svgMask)).ensureAlpha().png().toBuffer();
-      const png = await sharp(resized).composite([{ input: mask, blend: "dest-in" }]).png().toBuffer();
+      const png = await framedPng(inputSrc, size);
       return { size, png };
     })
   );
@@ -84,8 +92,20 @@ async function createIco(inputSrc, dest, sizes) {
 }
 
 await mkdir("icons", { recursive: true });
-await createRoundedIcon(src, "icons/icon.png", 256, 32);
-await createRoundedIcon(src, "src/client/public/logo.png", 88, 14);
+await mkdir("src/client/public", { recursive: true });
+await createPng(src, "icons/icon.png", 512);
+await createPng(src, "src/client/public/logo.png", 512);
+await createPng(src, "src/client/public/favicon-16x16.png", 16);
+await createPng(src, "src/client/public/favicon-32x32.png", 32);
+await createPng(src, "src/client/public/favicon-48x48.png", 48);
+await createPng(src, "src/client/public/favicon-64x64.png", 64);
+await createPng(src, "src/client/public/favicon-96x96.png", 96);
+await createPng(src, "src/client/public/apple-touch-icon.png", 180);
+await createPng(src, "src/client/public/android-chrome-192x192.png", 192);
+await createPng(src, "src/client/public/android-chrome-512x512.png", 512);
+await createPng(src, "src/client/public/mstile-150x150.png", 150);
+await createMaskablePng(src, "src/client/public/maskable-icon-512x512.png", 512);
 await createIco(src, "icons/icon.ico", [16, 24, 32, 48, 64, 128, 256]);
+await createIco(src, "src/client/public/favicon.ico", [16, 24, 32, 48, 64, 128, 256]);
 
 console.log("Done");

@@ -8,8 +8,10 @@ import type {
 } from "../shared/types.js";
 import { decryptSecret } from "./crypto.js";
 import { isLowBalance } from "./selector.js";
-import { upsertGateway } from "./store.js";
+import { updateGateway } from "./store.js";
 import { detectEndpointProvider } from "../shared/providers.js";
+import { BALANCE_CHECK_CONCURRENCY } from "../shared/constants.js";
+import { mapWithConcurrency } from "./concurrency.js";
 
 type LiveCreditResult = {
   balanceCents?: number;
@@ -175,8 +177,10 @@ export async function refreshLiveBalances(
   const checkedAt = new Date().toISOString();
   const checkedAtMs = Date.parse(checkedAt);
 
-  const accounts = await Promise.all(
-    gateway.accounts.map(async (account) => {
+  const accounts = await mapWithConcurrency(
+    gateway.accounts,
+    BALANCE_CHECK_CONCURRENCY,
+    async (account) => {
       const endpointProvider = detectAccountEndpoint(modelCompany, account);
       if (endpointProvider.balance.mode !== "api") return account;
       const normalizedAccount = withoutLegacyBalanceError(account);
@@ -212,18 +216,33 @@ export async function refreshLiveBalances(
           lastBalanceCheckedAt: checkedAt
         };
       }
-    })
+    }
   );
 
   if (!changed) return gateway;
 
-  const nextGateway = {
+  const nextGateway: GatewayStored = {
     ...gateway,
     accounts,
     updatedAt: checkedAt
   };
-  await upsertGateway(nextGateway);
-  return nextGateway;
+  const persisted = await updateGateway(gateway.id, (stored) => ({
+    ...stored,
+    accounts: stored.accounts.map((current) => {
+      const checked = accounts.find((account) => account.id === current.id);
+      if (!checked) return current;
+      return {
+        ...current,
+        estimatedBalanceCents: checked.estimatedBalanceCents,
+        spentCents: checked.spentCents,
+        lastBalanceStatus: checked.lastBalanceStatus,
+        lastBalanceError: checked.lastBalanceError,
+        lastBalanceCheckedAt: checked.lastBalanceCheckedAt,
+        lastError: checked.lastError
+      };
+    })
+  }));
+  return persisted ?? nextGateway;
 }
 
 export function balanceSnapshots(gateway: GatewayStored, modelCompany: ModelCompanyDefinition): BalanceSnapshot[] {

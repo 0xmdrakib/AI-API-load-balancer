@@ -10,6 +10,8 @@ import type {
 import { decryptSecret } from "./crypto.js";
 import { balanceSnapshots, refreshLiveBalances } from "./balance.js";
 import { getEligibleAccounts } from "./selector.js";
+import { BALANCE_CHECK_CONCURRENCY } from "../shared/constants.js";
+import { mapWithConcurrency } from "./concurrency.js";
 
 function trimTrailingSlash(value: string) {
   return value.replace(/\/+$/, "");
@@ -107,8 +109,10 @@ export async function buildGatewayDiagnostics(
   const eligibleIds = new Set(getEligibleAccounts(refreshedGateway).map((account) => account.id));
   const checkedAt = new Date().toISOString();
 
-  const accounts = await Promise.all(
-    refreshedGateway.accounts.map(async (account): Promise<AccountDiagnostic> => {
+  const accounts = await mapWithConcurrency(
+    refreshedGateway.accounts,
+    BALANCE_CHECK_CONCURRENCY,
+    async (account): Promise<AccountDiagnostic> => {
       const endpointProvider = detectEndpointProvider(accountBaseUrl(modelCompany, account), modelCompany.defaultEndpointProviderId);
       const snapshot = snapshots.find((item) => item.accountId === account.id)!;
       const routingEligible = eligibleIds.has(account.id);
@@ -140,7 +144,7 @@ export async function buildGatewayDiagnostics(
         checkedAt,
         message: diagnosticMessage(snapshot, auth.authStatus, auth.message, routingEligible)
       };
-    })
+    }
   );
 
   return {

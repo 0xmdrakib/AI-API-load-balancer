@@ -1,0 +1,9 @@
+{
+  "name": "AI Load Balancer",
+  "short_name": "AI Load Balancer",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f7f5ef",
+  "theme_color": "#121211",
+  "icons": [{"src":"assets/brand-mark.png","sizes":"512x512","type":"image/png","purpose":"any maskable"}]
+}

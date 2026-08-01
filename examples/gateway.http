@@ -1,22 +1,27 @@
-@baseUrl = http://127.0.0.1:8787/v1
-@ownerKey = aigw_replace_me
+@root = http://127.0.0.1:42891
+@ownerKey = YOUR_OWNER_API_KEY
 
-### Models
-GET {{baseUrl}}/models
-Authorization: Bearer {{ownerKey}}
+### Runtime metadata (actual desktop port and both base URLs)
+GET {{root}}/runtime
 
-### Chat completions
-POST {{baseUrl}}/chat/completions
+### OpenAI Chat Completions
+POST {{root}}/v1/chat/completions
 Authorization: Bearer {{ownerKey}}
 Content-Type: application/json
 
 {
   "model": "your-model-id",
-  "messages": [
-    {
-      "role": "user",
-      "content": "Hello through the gateway"
-    }
-  ],
-  "stream": false
+  "messages": [{ "role": "user", "content": "Hello" }]
+}
+
+### Anthropic Messages
+POST {{root}}/v1/messages
+x-api-key: {{ownerKey}}
+anthropic-version: 2023-06-01
+Content-Type: application/json
+
+{
+  "model": "your-model-id",
+  "max_tokens": 1024,
+  "messages": [{ "role": "user", "content": "Hello" }]
 }

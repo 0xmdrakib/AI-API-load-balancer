@@ -1,0 +1,8 @@
+node_modules/
+dist/
+dist-web/
+release/
+.vitest-data/
+.site-icon-qa/
+*.log
+AI.API.load.balancer.0.1.0.exe

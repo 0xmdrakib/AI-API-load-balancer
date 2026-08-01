@@ -10,6 +10,7 @@ import type {
   EndpointProviderDefinition,
   ModelCompanyDefinition,
   PolicyDefinition,
+  RuntimeMetadata,
 } from "../shared/types";
 
 export interface BootstrapResponse {
@@ -18,6 +19,14 @@ export interface BootstrapResponse {
   endpointProviders: EndpointProviderDefinition[];
   policies: PolicyDefinition[];
   defaultFailover: FailoverOptions;
+  limits: {
+    accountsPerGateway: number;
+    maxRetries: number;
+  };
+}
+
+export async function fetchRuntime() {
+  return fetchJson<RuntimeMetadata>("/api/runtime");
 }
 
 export async function fetchBootstrap() {

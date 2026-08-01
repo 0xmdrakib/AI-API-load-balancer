@@ -13,15 +13,15 @@ export default defineConfig({
     strictPort: false,
     proxy: {
       "/api/": {
-        target: "http://127.0.0.1:8787",
+        target: "http://127.0.0.1:42891",
         changeOrigin: true
       },
       "/v1/": {
-        target: "http://127.0.0.1:8787",
+        target: "http://127.0.0.1:42891",
         changeOrigin: true
       },
       "/health": {
-        target: "http://127.0.0.1:8787",
+        target: "http://127.0.0.1:42891",
         changeOrigin: true
       }
     }
