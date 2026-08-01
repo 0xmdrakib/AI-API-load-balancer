@@ -36,14 +36,16 @@ body.dark{--cream:#121211;--paper:#1b1b18;--ink:#f6f2e9;--muted:#aaa79b;--line:#
 .theme-toggle{padding:0;line-height:0;display:flex;align-items:center;justify-content:center}
 .theme-toggle>span{display:flex;align-items:center;justify-content:center;width:18px;height:18px;line-height:1;font-family:"Segoe UI Symbol","Noto Sans Symbols 2",sans-serif;font-size:17px}
 .nav-toggle{padding:0}
-.nav-toggle span{display:block;flex:0 0 auto;width:16px;height:1.5px;margin:0;background:currentColor}
+.nav-toggle{align-items:center}
+.nav-toggle span{display:block;flex:0 0 auto;width:18px;height:1.5px;margin:0 auto;background:currentColor;border-radius:999px}
 @media (max-width:680px){
   .site-header{grid-template-rows:64px auto;height:auto;min-height:64px;align-items:center}
+  .site-header::after{top:63px;bottom:auto}
   .site-nav{position:static;left:auto;right:auto;top:auto;grid-column:1/-1;grid-row:2;width:100%;margin:0}
   .site-nav.open{display:flex}
 }
 @media (max-width:680px){
-  .site-nav.open{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px;padding:10px}
+  .site-nav.open{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px;padding:10px;box-shadow:0 14px 30px rgba(28,25,17,.1)}
   .site-nav a{padding:10px 12px;border-radius:10px;line-height:1.25}
   .site-nav a:hover{background:var(--cream)}
   .site-nav .nav-github{grid-column:1/-1;margin-top:4px;text-align:center}
