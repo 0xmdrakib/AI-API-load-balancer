@@ -13,7 +13,7 @@ function setTheme(theme) {
 }
 
 const savedTheme = localStorage.getItem('ai-load-balancer-theme');
-setTheme(savedTheme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
+setTheme(savedTheme || 'light');
 themeButton?.addEventListener('click', () => setTheme(root.classList.contains('dark') ? 'light' : 'dark'));
 navButton?.addEventListener('click', () => {
   const open = nav?.classList.toggle('open') ?? false;
