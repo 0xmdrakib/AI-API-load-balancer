@@ -32,3 +32,13 @@ body.dark{--cream:#121211;--paper:#1b1b18;--ink:#f6f2e9;--muted:#aaa79b;--line:#
   .hero-actions{grid-template-columns:1fr}
 }
 @media(max-width:680px){.usecase-grid{grid-template-columns:1fr;margin-top:36px}.usecase-card{padding:20px;gap:13px}.usecase-card p{font-size:11px}.usecase-note{display:block;line-height:1.7}.note-check{margin-right:6px}}
+/* Center the theme glyph and use a complete three-line menu mark. */
+.theme-toggle{padding:0;line-height:0;display:flex;align-items:center;justify-content:center}
+.theme-toggle>span{display:flex;align-items:center;justify-content:center;width:18px;height:18px;line-height:1;font-family:"Segoe UI Symbol","Noto Sans Symbols 2",sans-serif;font-size:17px}
+.nav-toggle{padding:0}
+.nav-toggle span{display:block;flex:0 0 auto;width:16px;height:1.5px;margin:0;background:currentColor}
+@media (max-width:680px){
+  .site-header{grid-template-rows:64px auto;height:auto;min-height:64px;align-items:center}
+  .site-nav{position:static;left:auto;right:auto;top:auto;grid-column:1/-1;grid-row:2;width:100%;margin:0}
+  .site-nav.open{display:flex}
+}
