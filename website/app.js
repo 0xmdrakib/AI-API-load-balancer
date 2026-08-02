@@ -1,6 +1,3 @@
-const repo = '0xmdrakib/AI-API-load-balancer';
-const fallback = { exe: 'https://github.com/0xmdrakib/AI-API-load-balancer/releases/download/v0.2.0/AI-Load-Balancer.exe', zip: 'https://github.com/0xmdrakib/AI-API-load-balancer/releases/download/v0.2.0/AI-Load-Balancer.zip' };
-
 const root = document.body;
 const themeButton = document.querySelector('.theme-toggle');
 const navButton = document.querySelector('.nav-toggle');
@@ -28,20 +25,3 @@ const heroDownload = document.querySelector('.hero-actions .button-gold');
 if (heroDownload) heroDownload.firstChild.textContent = 'Download for Windows ';
 const releaseVersion = document.querySelector('.release-meta span:nth-child(2)');
 if (releaseVersion) releaseVersion.textContent = 'Windows x64';
-document.querySelector('#download-exe')?.setAttribute('href', fallback.exe);
-document.querySelector('#download-zip')?.setAttribute('href', fallback.zip);
-
-async function loadReleaseLinks() {
-  try {
-    const response = await fetch(`https://api.github.com/repos/${repo}/releases/latest`, { headers: { Accept: 'application/vnd.github+json' } });
-    if (!response.ok) return;
-    const release = await response.json();
-    const assets = new Map((release.assets || []).map((asset) => [asset.name, asset.browser_download_url]));
-    const exe = assets.get('AI-Load-Balancer.exe') || assets.get('AI Load Balancer.exe') || assets.get('AI.Load.Balancer.exe');
-    const zip = assets.get('AI-Load-Balancer.zip') || assets.get('AI Load Balancer.zip') || assets.get('AI.Load.Balancer.zip');
-    if (exe) document.querySelector('#download-exe')?.setAttribute('href', exe);
-    if (zip) document.querySelector('#download-zip')?.setAttribute('href', zip);
-    document.querySelectorAll('[data-release-version]').forEach((node) => { node.textContent = release.tag_name || 'v0.2.0'; });
-  } catch { /* GitHub is optional; the stable release URLs remain usable. */ }
-}
-loadReleaseLinks();
